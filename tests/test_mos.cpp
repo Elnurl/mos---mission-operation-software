@@ -14,6 +14,7 @@ class TestMos : public QObject {
  private slots:
   void schemaAndDefaultAsset();
   void tmAndTcHistory();
+  void insertUnitlessTmSample();
   void adapterDecodesSimFrame();
   void stubBridgeEmitsTmAndAck();
 };
@@ -73,6 +74,55 @@ void TestMos::tmAndTcHistory()
   r.updatedUtc = tc.createdUtc;
   QVERIFY(db.upsertCommand(tc, r, &error));
   QCOMPARE(db.recentCommands(QStringLiteral("SC-1"), 10, &error).size(), 1);
+}
+
+void TestMos::insertUnitlessTmSample()
+{
+  // Default-constructed QString is null; Qt SQL would bind SQL NULL and trip
+  // NOT NULL on tm_samples.unit unless insertTmSample coalesces to "".
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  mos::persist::Database db(QStringLiteral("test_unitless"));
+  QString error;
+  QVERIFY2(db.open(dir.path() + QStringLiteral("/u.sqlite"), &error), qPrintable(error));
+
+  mos::Asset sc1{QStringLiteral("SC-1"), QStringLiteral("Spacecraft 1"),
+                 QStringLiteral("x"), true};
+  QVERIFY(db.ensureDefaultAsset(sc1, &error));
+
+  mos::Parameter seq;
+  seq.assetId = QStringLiteral("SC-1");
+  seq.name = QStringLiteral("SEQ");
+  seq.value = 42;
+  // deliberately leave unit default-null
+  seq.sequence = 42;
+  seq.timestampUtc = QDateTime::currentDateTimeUtc();
+  QVERIFY2(db.insertTmSample(seq, &error), qPrintable(error));
+
+  mos::Parameter mode;
+  mode.assetId = QStringLiteral("SC-1");
+  mode.name = QStringLiteral("MODE");
+  mode.value = QStringLiteral("IDLE");
+  mode.unit = QString();  // null
+  mode.sequence = 42;
+  mode.timestampUtc = QDateTime::currentDateTimeUtc();
+  QVERIFY2(db.insertTmSample(mode, &error), qPrintable(error));
+
+  mos::CfsAdapter adapter;
+  mos::SimTmGenerator gen(QStringLiteral("SC-1"));
+  QSignalSpy spy(&gen, &mos::SimTmGenerator::frameReady);
+  gen.start(100000);
+  QVERIFY(spy.count() >= 1);
+  mos::RawFrame frame;
+  frame.assetId = spy.first().at(0).toString();
+  frame.payload = spy.first().at(1).toByteArray();
+  frame.receivedUtc = QDateTime::currentDateTimeUtc();
+  QVector<mos::Parameter> params;
+  QVERIFY2(adapter.decodeTelemetry(frame, &params, &error), qPrintable(error));
+  for (const auto& p : params) {
+    QVERIFY2(db.insertTmSample(p, &error),
+             qPrintable(QStringLiteral("%1: %2").arg(p.name, error)));
+  }
 }
 
 void TestMos::adapterDecodesSimFrame()

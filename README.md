@@ -51,6 +51,12 @@ Building inside WSL Ubuntu is supported. Running the GUI needs a display server:
 
 - Prefer **WSLg** (Windows 11 default for recent WSL) — `./build/src/app/mos-desktop` should open a window with no extra setup.
 - If WSLg is unavailable, use **VcXsrv / XLaunch** (or another X server), set `export DISPLAY=:0` (or your X server’s address), then run `mos-desktop`.
+- If you see `qt.qpa.plugin: Could not find the Qt platform plugin "wayland"`, it is usually harmless under X11/WSLg. To silence it, force xcb:
+
+```bash
+export QT_QPA_PLATFORM=xcb
+./build/src/app/mos-desktop
+```
 
 Headless configure/build and `QT_QPA_PLATFORM=offscreen` smoke tests do not need a display.
 
@@ -78,6 +84,17 @@ On first launch MOS creates `~/.local/share/MOS/mos.sqlite` (XDG app data),
 bootstraps asset **SC-1**, starts the stub bridge, and streams simulated TM into
 the live table. Compose a telecommand (default `NOOP`) and Send — status moves
 Queued → Sent → Acked via the stub.
+
+**Local DB path:** `~/.local/share/MOS/mos.sqlite`  
+If you upgraded from an earlier Slice A build and see repeated
+`TM error: NOT NULL constraint failed: tm_samples.unit`, quit the app and remove
+the DB once so schema/data are recreated cleanly:
+
+```bash
+rm -f ~/.local/share/MOS/mos.sqlite
+```
+
+Then rebuild/rerun (pull + `cmake --build build` is enough for this fix).
 
 Headless smoke (no display):
 

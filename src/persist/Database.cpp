@@ -128,7 +128,8 @@ bool Database::insertTmSample(const mos::Parameter& p, QString* error)
   q.addBindValue(p.assetId);
   q.addBindValue(p.name);
   q.addBindValue(p.value.toString());
-  q.addBindValue(p.unit);
+  // Qt null QString binds as SQL NULL; unitless params must store "".
+  q.addBindValue(p.unit.isNull() ? QStringLiteral("") : p.unit);
   q.addBindValue(static_cast<qint64>(p.sequence));
   q.addBindValue(p.timestampUtc.toUTC().toString(Qt::ISODateWithMs));
   if (!q.exec()) {

@@ -64,11 +64,11 @@ bool CfsAdapter::decodeTelemetry(const RawFrame& frame, QVector<Parameter>* out,
     out->push_back(p);
   };
 
-  add(QStringLiteral("SEQ"), QVariant::fromValue(sequence), QString());
+  add(QStringLiteral("SEQ"), QVariant::fromValue(sequence), QStringLiteral(""));
   add(QStringLiteral("BUS_V"), busVoltage, QStringLiteral("V"));
   add(QStringLiteral("BATT_SOC"), batterySoc, QStringLiteral("%"));
   add(QStringLiteral("TEMP_BRD"), tempBoard, QStringLiteral("C"));
-  add(QStringLiteral("MODE"), modeName(mode), QString());
+  add(QStringLiteral("MODE"), modeName(mode), QStringLiteral(""));
   return true;
 }
 
