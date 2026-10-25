@@ -9,9 +9,11 @@ namespace mos {
 /**
  * Southbound cFS I/O boundary (I-CFS).
  *
- * Slice A ships StubCfsBridge + SimTmGenerator so the UI path works without a
- * live cFS. A real bridge implementation should speak the chosen cFS ground
- * interface (CI/TO/custom) behind this same API — no UI changes required.
+ * Implementations:
+ *   - StubCfsBridge + SimTmGenerator — offline desktop demo (default)
+ *   - UdpCfsBridge — UDP path aligned with cFS ci_lab/to_lab ports (1234/1235)
+ *
+ * Select at runtime: MOS_BRIDGE=stub|udp or mos-desktop --bridge=stub|udp.
  */
 class ICfsBridge : public QObject {
   Q_OBJECT

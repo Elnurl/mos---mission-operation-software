@@ -7,7 +7,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql Network Test)
 
 option(MOS_BUILD_TESTS "Build unit tests" ON)
 

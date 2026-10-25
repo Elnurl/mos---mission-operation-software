@@ -2,11 +2,14 @@
 #include "Database.h"
 #include "Models.h"
 #include "Schema.h"
+#include "Session.h"
 #include "SimTmGenerator.h"
 #include "StubCfsBridge.h"
+#include "UdpCfsBridge.h"
 
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QUdpSocket>
 #include <QtTest>
 
 class TestMos : public QObject {
@@ -17,6 +20,8 @@ class TestMos : public QObject {
   void insertUnitlessTmSample();
   void adapterDecodesSimFrame();
   void stubBridgeEmitsTmAndAck();
+  void udpBridgeRoundTrip();
+  void parseBridgeMode();
 };
 
 void TestMos::schemaAndDefaultAsset()
@@ -162,6 +167,69 @@ void TestMos::stubBridgeEmitsTmAndAck()
   QTRY_COMPARE_WITH_TIMEOUT(ackSpy.count(), 1, 2000);
   QCOMPARE(ackSpy.first().at(2).toBool(), true);
   bridge.stop();
+}
+
+void TestMos::udpBridgeRoundTrip()
+{
+  // Peer binds an ephemeral TC port; MOS UDP bridge binds ephemeral TM port.
+  QUdpSocket peer;
+  QVERIFY(peer.bind(QHostAddress::LocalHost, 0));
+  const quint16 tcPort = peer.localPort();
+
+  mos::UdpCfsBridge bridge(QStringLiteral("SC-1"));
+  bridge.setEndpoints(QHostAddress::LocalHost, 0, QHostAddress::LocalHost, tcPort);
+
+  // Bind TM on ephemeral: set port 0 then start — UdpCfsBridge uses configured port.
+  // Re-bind: start() binds tmListenPort_; use a free port we discover.
+  QUdpSocket probe;
+  QVERIFY(probe.bind(QHostAddress::LocalHost, 0));
+  const quint16 tmPort = probe.localPort();
+  probe.close();
+
+  bridge.setEndpoints(QHostAddress::LocalHost, tmPort, QHostAddress::LocalHost, tcPort);
+
+  QSignalSpy tmSpy(&bridge, &mos::ICfsBridge::telemetryReceived);
+  QSignalSpy ackSpy(&bridge, &mos::ICfsBridge::commandAck);
+  QString error;
+  QVERIFY2(bridge.start(&error), qPrintable(error));
+
+  // MOST TM from peer → bridge
+  mos::SimTmGenerator gen(QStringLiteral("SC-1"));
+  QSignalSpy frameSpy(&gen, &mos::SimTmGenerator::frameReady);
+  gen.start(100000);
+  QVERIFY(frameSpy.count() >= 1);
+  const QByteArray tmPayload = frameSpy.first().at(1).toByteArray();
+  QCOMPARE(peer.writeDatagram(tmPayload, QHostAddress::LocalHost, tmPort), tmPayload.size());
+  QTRY_VERIFY_WITH_TIMEOUT(tmSpy.count() >= 1, 2000);
+  QCOMPARE(tmSpy.first().at(1).toByteArray(), tmPayload);
+
+  // TC bridge → peer, then MOSACK peer → bridge
+  const QByteArray enc = mos::StubCfsBridge::encodeStubCommand(
+      QStringLiteral("cmd-udp-1"), QStringLiteral("NOOP"), QStringLiteral("{}"));
+  QVERIFY(bridge.sendTelecommand(QStringLiteral("SC-1"), enc, &error));
+  QTRY_VERIFY_WITH_TIMEOUT(peer.hasPendingDatagrams(), 2000);
+  QByteArray gotTc;
+  QHostAddress from;
+  quint16 fromPort = 0;
+  gotTc.resize(static_cast<int>(peer.pendingDatagramSize()));
+  peer.readDatagram(gotTc.data(), gotTc.size(), &from, &fromPort);
+  QCOMPARE(gotTc, enc);
+
+  const QByteArray ack = QByteArrayLiteral("MOSACK|cmd-udp-1|1|test-ack");
+  QCOMPARE(peer.writeDatagram(ack, QHostAddress::LocalHost, tmPort), ack.size());
+  QTRY_COMPARE_WITH_TIMEOUT(ackSpy.count(), 1, 2000);
+  QCOMPARE(ackSpy.first().at(1).toString(), QStringLiteral("cmd-udp-1"));
+  QCOMPARE(ackSpy.first().at(2).toBool(), true);
+
+  bridge.stop();
+}
+
+void TestMos::parseBridgeMode()
+{
+  QCOMPARE(mos::parseBridgeMode(QStringLiteral("stub")), mos::BridgeMode::Stub);
+  QCOMPARE(mos::parseBridgeMode(QStringLiteral("UDP")), mos::BridgeMode::Udp);
+  QCOMPARE(mos::parseBridgeMode(QStringLiteral("cfs")), mos::BridgeMode::Udp);
+  QVERIFY(!mos::parseBridgeMode(QStringLiteral("nope")).has_value());
 }
 
 QTEST_MAIN(TestMos)

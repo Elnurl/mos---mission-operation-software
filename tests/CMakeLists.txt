@@ -5,6 +5,7 @@ add_executable(mos_tests
 target_link_libraries(mos_tests
   PRIVATE
     Qt6::Core
+    Qt6::Network
     Qt6::Test
     Qt6::Sql
     mos_persist

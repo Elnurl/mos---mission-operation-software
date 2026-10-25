@@ -1,5 +1,8 @@
 #include "Session.h"
 
+#include "StubCfsBridge.h"
+#include "UdpCfsBridge.h"
+
 namespace mos {
 
 Session::Session(QObject* parent) : QObject(parent) {}
@@ -9,9 +12,21 @@ Session::~Session()
   close();
 }
 
-bool Session::open(const QString& dbPath, QString* error)
+std::unique_ptr<ICfsBridge> Session::createBridge(const QString& assetId)
+{
+  switch (bridgeMode_) {
+  case BridgeMode::Udp:
+    return std::make_unique<UdpCfsBridge>(assetId, this);
+  case BridgeMode::Stub:
+  default:
+    return std::make_unique<StubCfsBridge>(assetId, this);
+  }
+}
+
+bool Session::open(const QString& dbPath, BridgeMode bridgeMode, QString* error)
 {
   close();
+  bridgeMode_ = bridgeMode;
 
   db_ = std::make_unique<persist::Database>(QStringLiteral("mos_session"));
   if (!db_->open(dbPath, error)) {
@@ -25,7 +40,7 @@ bool Session::open(const QString& dbPath, QString* error)
 
   const QString assetId = primaryAssetId();
   adapter_ = std::make_unique<CfsAdapter>(this);
-  bridge_ = std::make_unique<StubCfsBridge>(assetId, this);
+  bridge_ = createBridge(assetId);
   tm_ = std::make_unique<TmPipeline>(db_.get(), adapter_.get(), this);
   tc_ = std::make_unique<TcPipeline>(db_.get(), adapter_.get(), bridge_.get(), this);
 
@@ -35,7 +50,8 @@ bool Session::open(const QString& dbPath, QString* error)
           [this](const QString& /*assetId*/, bool connected) {
             linkState_ = connected ? LinkState::Connected : LinkState::Disconnected;
             emit linkStateChanged(linkState_);
-            emit opsLog(connected ? QStringLiteral("Link UP (stub/sim)")
+            const QString mode = bridgeModeToString(bridgeMode_);
+            emit opsLog(connected ? QStringLiteral("Link UP (%1)").arg(mode)
                                   : QStringLiteral("Link DOWN"));
           });
   connect(tm_.get(), &TmPipeline::ingestError, this,
@@ -43,8 +59,8 @@ bool Session::open(const QString& dbPath, QString* error)
   connect(tc_.get(), &TcPipeline::commandError, this,
           [this](const QString& msg) { emit opsLog(QStringLiteral("TC error: %1").arg(msg)); });
 
-  emit opsLog(QStringLiteral("Session open — asset %1, pack %2")
-                  .arg(assetId, adapter_->packId()));
+  emit opsLog(QStringLiteral("Session open — asset %1, pack %2, bridge %3")
+                  .arg(assetId, adapter_->packId(), bridgeModeToString(bridgeMode_)));
   return true;
 }
 
