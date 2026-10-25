@@ -29,7 +29,7 @@ MainWindow::MainWindow(Session* session, QWidget* parent)
   connect(session_->tc(), &TcPipeline::commandUpdated, this, &MainWindow::onCommandUpdated);
 
   onLinkStateChanged(session_->linkState());
-  onOpsLog(QStringLiteral("UI ready — Slice A stub/sim path"));
+  onOpsLog(QStringLiteral("UI ready — bridge=%1").arg(bridgeModeToString(session_->bridgeMode())));
 }
 
 void MainWindow::buildUi()
