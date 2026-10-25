@@ -1,0 +1,28 @@
+# Build
+/build/
+/cmake-build-*/
+/out/
+*.o
+*.a
+*.so
+*.dylib
+
+# Qt / IDE
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+.idea/
+.vscode/
+*.user
+*.autosave
+.qtcreator/
+
+# Runtime
+*.sqlite
+*.sqlite-journal
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
