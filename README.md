@@ -24,18 +24,35 @@ mos/
 
 ## Dependencies (Linux)
 
+Supported build hosts: native Linux, and **Windows 11 + WSL Ubuntu** (22.04+).
+
 - CMake ≥ 3.21
 - C++17 compiler (g++ / clang++) with libstdc++
 - Qt 6: Core, Gui, Widgets, Sql (SQLite driver)
+- OpenGL headers/libs (required by Qt6 Gui / CMake `WrapOpenGL`)
 - SQLite 3 (via Qt Sql + system lib)
 
-### Debian / Ubuntu
+### Debian / Ubuntu (incl. WSL)
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y build-essential cmake ninja-build g++ \
-  qt6-base-dev qt6-base-dev-tools libqt6sql6-sqlite libsqlite3-dev
+  qt6-base-dev qt6-base-dev-tools libqt6sql6-sqlite libsqlite3-dev \
+  libgl1-mesa-dev libopengl-dev
 ```
+
+If CMake fails with `Could NOT find OpenGL (missing: OPENGL_INCLUDE_DIR)` or
+`WrapOpenGL` / Qt6 Gui not found, install the Mesa/OpenGL packages above and
+reconfigure (`rm -rf build && cmake -S . -B build …`).
+
+### Windows 11 + WSL display
+
+Building inside WSL Ubuntu is supported. Running the GUI needs a display server:
+
+- Prefer **WSLg** (Windows 11 default for recent WSL) — `./build/src/app/mos-desktop` should open a window with no extra setup.
+- If WSLg is unavailable, use **VcXsrv / XLaunch** (or another X server), set `export DISPLAY=:0` (or your X server’s address), then run `mos-desktop`.
+
+Headless configure/build and `QT_QPA_PLATFORM=offscreen` smoke tests do not need a display.
 
 ## Build
 
