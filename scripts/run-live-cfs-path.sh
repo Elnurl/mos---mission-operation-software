@@ -45,12 +45,19 @@ if [[ "${MOS_USE_LAB_PEER:-0}" == "1" ]]; then
   sleep 0.3
 fi
 
+XLAT_EXTRA=()
+if [[ "${MOS_XLAT_DEMO_TM:-0}" == "1" ]]; then
+  XLAT_EXTRA+=(--demo-tm)
+fi
+
 echo "Starting MOST↔CCSDS translator (MOS ${MOS_TC_PORT}/${MOS_TM_PORT} ↔ cFS ${CFS_TC_PORT}/{${CFS_TM_PORTS}})"
+echo "MOS will use MOS_CFS_TC_PORT=${MOS_TC_PORT} MOS_CFS_TM_PORT=${MOS_TM_PORT}"
 python3 "$XLAT" \
   --mos-tc-port "$MOS_TC_PORT" \
   --mos-tm-port "$MOS_TM_PORT" \
   --cfs-tc-port "$CFS_TC_PORT" \
   --cfs-tm-ports "$CFS_TM_PORTS" \
+  "${XLAT_EXTRA[@]}" \
   "$@" &
 PIDS+=($!)
 sleep 0.4
