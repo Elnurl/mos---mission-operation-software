@@ -1,143 +1,154 @@
-# cFS / UDP bridge bring-up (Slice A)
+# cFS / UDP bridge bring-up (Slice A → MOS-8)
 
-MOS keeps **`StubCfsBridge`** as the default offline demo and adds **`UdpCfsBridge`**
+MOS keeps **`StubCfsBridge`** as the default offline demo and **`UdpCfsBridge`**
 for a real socket path aligned with NASA cFS lab ground ports (**ci_lab** TC /
 **to_lab** TM).
 
 | Mode | How | Role |
 | --- | --- | --- |
 | `stub` (default) | `./build/src/app/mos-desktop` | In-process `SimTmGenerator` + fake ACKs |
-| `udp` | `--bridge=udp` or `MOS_BRIDGE=udp` | UDP to harness or live cFS-side peer |
+| `udp` + harness | `--bridge=udp` + `cfs-udp-harness.py` | MOST over 1234/1235 (no cFS) |
+| `udp` + translator | `--bridge=udp` + `most-ccsds-translator.py` | **Honest live-cFS path** (MOST↔CCSDS) |
+| `udp` + `MOS_CFS_WIRE=ccsds` | direct CCSDS on 1234/1235 | Alternate: MOS packs lab CCSDS itself |
 
-## Proven closed loop (no full cFS required)
+## Ports
 
-Uses the same ports as stock ci_lab / to_lab defaults:
-
-| Direction | Default | Env |
-| --- | --- | --- |
-| MOS → peer TC | `127.0.0.1:1234` | `MOS_CFS_TC_HOST`, `MOS_CFS_TC_PORT` |
-| Peer → MOS TM/ACK | MOS binds `:1235` | `MOS_CFS_TM_PORT`, `MOS_CFS_TM_BIND` |
-
-**Wire payload (Slice A):**
-
-- **TM:** binary MOST frame (`0x4D4F5354` + version + seq + floats + mode) — same as `SimTmGenerator` / `CfsAdapter`
-- **TC:** UTF-8 `commandId|mnemonic|argsJson` — same as stub encode
-- **ACK:** UTF-8 `MOSACK|commandId|1|detail` (or `0` for fail)
-
-### One-shot demo (WSL Ubuntu)
-
-```bash
-# terminal A — cFS-side peer
-python3 scripts/cfs-udp-harness.py
-
-# terminal B — MOS
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-./build/src/app/mos-desktop --bridge=udp
-```
-
-Or combined:
-
-```bash
-chmod +x scripts/run-udp-demo.sh
-./scripts/run-udp-demo.sh
-```
-
-You should see live TM in the UI and Send NOOP → Queued → Sent → Acked (`harness accepted …`).
-
-### Headless smoke
-
-```bash
-python3 scripts/cfs-udp-harness.py &
-HPID=$!
-QT_QPA_PLATFORM=offscreen MOS_BRIDGE=udp timeout 3 ./build/src/app/mos-desktop --bridge=udp || true
-kill $HPID
-```
+| Direction | Classic lab | Modern upstream `to_lab` default | MOS / translator |
+| --- | --- | --- | --- |
+| Ground → `ci_lab` TC | **1234** | **1234** | cFS owns this |
+| `to_lab` → ground TM | **1235** (many tutorials) | **2234** (`TO_LAB_MISSION_TLM_PORT`) | translator listens **both** by default |
+| MOS ↔ harness (MOST) | TC **1234** / TM **1235** | same | harness owns 1234 |
+| MOS ↔ translator (MOST) | TC **1334** / TM **1335** | same | avoids clashing with ci_lab |
 
 ---
 
-## WSL Ubuntu: build & run NASA cFS (owner machine)
+## Why TC can work while the live TM table is empty
 
-Target: **Windows 11 + WSL Ubuntu 22.04+**. Run these **inside WSL**, not PowerShell.
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| NOOP → Acked, TM table blank | `to_lab` subscription table empty (stock comments out all MIDs) | `scripts/patch-cfs-to-lab-subs.sh` → `make && make install` → restart `core-cpu1` |
+| `Subscribe Err: Bad Arg` on ADD_PKT | Wrong MsgId wire layout for your cFE | **Do not** use `--add-pkt` until sure; prefer the patch script |
+| Translator silent, wrong port | Build sends to **2234**, listener was only **1235** (or vice versa) | Translator now listens **1235,2234**; or `python3 scripts/probe-cfs-tm.py` |
+| ENABLE never sent / wrong dest IP | to_lab still `Awaiting enable` | Translator auto-sends `TO_LAB_ENABLE` to `127.0.0.1` |
 
-### 1. Packages
+ENABLE alone does **not** create traffic if nothing is subscribed.
+
+---
+
+## A. Stub (default — always works)
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y build-essential cmake git
+./build/src/app/mos-desktop
 ```
 
-### 2. Clone NASA cFS bundle
+## B. UDP harness (MOST closed loop — no cFS)
 
 ```bash
-cd ~
-git clone --recurse-submodules https://github.com/nasa/cFS.git
-cd cFS
-cp cfe/cmake/Makefile.sample Makefile
-cp -r cfe/cmake/sample_defs sample_defs
+python3 scripts/cfs-udp-harness.py          # terminal A
+./build/src/app/mos-desktop --bridge=udp    # terminal B
 ```
 
-### 3. Message-queue limits (common WSL failure)
+Or: `./scripts/run-udp-demo.sh`
 
-If `core-cpu1` dies with `OS_QueueCreate` / `Invalid argument`:
+## C. Live NASA cFS — steps that produce **visible TM**
+
+### C0. One-time subscription patch (owner WSL)
 
 ```bash
-sudo sysctl -w fs.mqueue.msg_max=256
-sudo sysctl -w fs.mqueue.msgsize_max=65536
-# optional persist in /etc/sysctl.conf then: sudo sysctl -p
+cd ~/mos---mission-operation-software
+CFS_ROOT=~/cFS ./scripts/patch-cfs-to-lab-subs.sh
+cd ~/cFS
+sudo sysctl -w fs.mqueue.msg_max=256 fs.mqueue.msgsize_max=65536
+make && make install
+# Ctrl+C any running core-cpu1, then start fresh below
 ```
 
-### 4. Build (native sim)
+Do **not** touch `~/.nos3/42`.
+
+### C1. Three terminals (daily)
+
+**Terminal 1 — cFS:**
 
 ```bash
-make distclean          # optional
-make SIMULATION=native prep
-make
-make install
-```
-
-### 5. Run cpu1
-
-```bash
-cd build/exe/cpu1
+cd ~/cFS/build/exe/cpu1
 ./core-cpu1
 ```
 
-Stock sample apps include **ci_lab** (commands in) and **to_lab** (telemetry out):
+**Terminal 2 — translator** (ENABLE + SEND_DATA_TYPES; listens 1235 **and** 2234):
 
-| App | Typical UDP role | Default port |
-| --- | --- | --- |
-| `ci_lab` | listens for ground commands | **1234** |
-| `to_lab` | sends TM to ground after Enable Tlm | **1235** |
+```bash
+cd ~/mos---mission-operation-software
+python3 scripts/most-ccsds-translator.py
+```
 
-Enable TO from the cFS ground tools / cmdUt (send `TO_LAB_ENABLE` with destination IP/port of the MOS host). Ensure `to_lab` subscription table includes the MIDs you care about (empty/commented tables = no TM).
+Success looks like:
 
-### 6. Docker alternative (optional)
+```text
+[xlat] TM#1 from ('127.0.0.1', …) mid=0x0881 seq=… → MOST 26B → :1335
+```
 
-Build/run cFS in Docker on WSL with ports published, e.g. `-p 1234:1234/udp -p 1235:1235/udp`,
-and the same `make SIMULATION=native prep && make && make install` flow inside the image.
-See community write-ups (e.g. Jude Labs cFS-on-WSL/Docker) if you prefer containers.
+If you see the 10s warning instead, re-check C0 / probe.
+
+**Terminal 3 — MOS:**
+
+```bash
+export QT_QPA_PLATFORM=xcb
+export MOS_CFS_TC_PORT=1334
+export MOS_CFS_TM_PORT=1335
+./build/src/app/mos-desktop --bridge=udp
+```
+
+Live table should populate (SEQ, BUS_V=APID diagnostic, …).  
+Mnemonics: `NOOP`, `TO_ENABLE`, `TO_SEND_DATA_TYPES`, `TO_NOOP`.
+
+### C2. Diagnostics
+
+```bash
+# With only core-cpu1 running (stop translator so ports are free):
+python3 scripts/probe-cfs-tm.py
+# Then from another shell, ENABLE:
+python3 -c "import socket,sys; sys.path.insert(0,'scripts'); from ccsds_lab_codec import pack_to_lab_enable; \
+s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.sendto(pack_to_lab_enable('127.0.0.1'),('127.0.0.1',1234))"
+```
+
+Optional runtime ADD_PKT (often causes Bad Arg — last resort):
+
+```bash
+python3 scripts/most-ccsds-translator.py --add-pkt --add-pkt-layout msgid32_le
+# try msgid16_le / msgid16_be only if needed
+```
+
+### C3. Combined helper
+
+```bash
+# peer stand-in (no cFS):
+MOS_USE_LAB_PEER=1 ./scripts/run-live-cfs-path.sh
+# real core-cpu1 already up:
+./scripts/run-live-cfs-path.sh
+```
+
+## D. Alternate: direct CCSDS wire (no translator)
+
+```bash
+export MOS_BRIDGE=udp MOS_CFS_WIRE=ccsds
+export MOS_CFS_TC_PORT=1234 MOS_CFS_TM_PORT=1235   # or 2234 for TM bind
+export MOS_TO_DEST_IP=127.0.0.1
+./build/src/app/mos-desktop --bridge=udp
+```
+
+Still needs a non-empty to_lab subscription table. ACKs are synthetic.
 
 ---
 
-## Honest gaps (what is / is not proven)
+## Honest gaps (proven vs not)
 
 | Item | Status |
 | --- | --- |
-| Stub desktop demo unchanged | **Proven** (default `stub`) |
-| `UdpCfsBridge` bind/send/recv + MOSACK | **Proven** against `cfs-udp-harness.py` |
-| End-to-end UI TM + TC ack over UDP | **Proven** with harness (local/script) |
-| NASA `core-cpu1` + raw ci_lab/to_lab CCSDS ↔ MOS MOST | **Not yet** — different packet formats |
-| Full cFS in CI | **Out of scope** this increment (heavy) |
-
-**Next bridge work:** either (a) a thin UDP translator MOST↔CCSDS CI/TO, or (b) a real CCSDS pack in `CfsAdapter` speaking ci_lab/to_lab bytes directly. Ports and `ICfsBridge` stay stable either way.
-
-Point MOS at a translator the same way as the harness:
-
-```bash
-export MOS_BRIDGE=udp
-export MOS_CFS_TC_HOST=127.0.0.1
-export MOS_CFS_TC_PORT=1234
-export MOS_CFS_TM_PORT=1235
-./build/src/app/mos-desktop --bridge=udp
-```
+| Stub + MOST harness | **Proven** |
+| Translator MOST↔CCSDS + lab peer | **Proven** in-repo |
+| Dual TM listen 1235+2234 + SEND_DATA_TYPES | **In this increment** |
+| Subscription patch script for owner `~/cFS` | **Delivered** — owner runs rebuild |
+| Live `core-cpu1` TM on owner WSL | **Owner verifies** after C0+C1 |
+| Full flight HK engineering units | **Gap** — diagnostic APID/LEN→MOST columns |
+| ADD_PKT on all cFE MsgId layouts | **Fragile** — prefer table patch |
+| Full cFS in CI | **Out of scope** |

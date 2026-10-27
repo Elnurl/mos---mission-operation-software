@@ -6,6 +6,8 @@ add_library(mos_bridge STATIC
   UdpCfsBridge.h
   SimTmGenerator.cpp
   SimTmGenerator.h
+  CcsdsLab.cpp
+  CcsdsLab.h
 )
 
 target_include_directories(mos_bridge PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

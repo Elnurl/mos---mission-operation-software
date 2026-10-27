@@ -23,6 +23,10 @@ compile_commands.json
 *.sqlite-journal
 *.log
 
+# Python
+__pycache__/
+*.py[cod]
+
 # OS
 .DS_Store
 Thumbs.db

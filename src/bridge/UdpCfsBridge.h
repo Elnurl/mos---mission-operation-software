@@ -12,12 +12,15 @@ namespace mos {
  *   - MOS listens for TM (and MOSACK) on tmListenPort (default 1235)
  *   - MOS sends TC datagrams to tcHost:tcPort (default 127.0.0.1:1234)
  *
- * Slice A payload is the existing MOST TM / stub TC framing (see CfsAdapter).
- * A Python harness (scripts/cfs-udp-harness.py) closes the loop without a full
- * cFS build. Point the same ports at a live cFS + translator when ready.
+ * Default wire payload remains MOST TM / stub TC (harness + translator).
+ * Set MOS_CFS_WIRE=ccsds to translate stub TC → CCSDS on send, accept raw
+ * CCSDS TM, auto-send TO_LAB_ENABLE (unless MOS_CFS_AUTO_ENABLE=0), and
+ * synthesize MOSACK (live cFS has no MOSACK). Preferred live path: keep MOST
+ * wire and run scripts/most-ccsds-translator.py (see scripts/cfs-sim-notes.md).
  *
  * Env overrides (read at start()):
  *   MOS_CFS_TM_PORT, MOS_CFS_TC_HOST, MOS_CFS_TC_PORT, MOS_CFS_TM_BIND
+ *   MOS_CFS_WIRE, MOS_CFS_AUTO_ENABLE, MOS_TO_DEST_IP
  */
 class UdpCfsBridge : public ICfsBridge {
   Q_OBJECT
@@ -54,6 +57,7 @@ class UdpCfsBridge : public ICfsBridge {
   quint16 tcPort_ = 1234;
   QUdpSocket socket_;
   bool running_ = false;
+  quint16 cmdSeq_ = 0;
 };
 
 }  // namespace mos
