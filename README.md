@@ -128,14 +128,14 @@ sudo sysctl -w fs.mqueue.msgsize_max=65536
 cd ~/cFS/build/exe/cpu1 && ./core-cpu1
 ```
 
-**Terminal 2 — translator** (auto `TO_LAB_ENABLE` + `SEND_DATA_TYPES`):
+**Terminal 2 — translator** (add `--demo-tm` to force a non-empty live table while debugging):
 
 ```bash
-python3 scripts/most-ccsds-translator.py
-# expect: [xlat] TM#1 from ... → MOST ... → :1335
+python3 scripts/most-ccsds-translator.py --demo-tm
+# expect: [xlat] MOST#… → 127.0.0.1:1335
 ```
 
-**Terminal 3 — MOS:**
+**Terminal 3 — MOS** (`1334`/`1335` env vars are required — otherwise the table stays empty):
 
 ```bash
 export QT_QPA_PLATFORM=xcb MOS_CFS_TC_PORT=1334 MOS_CFS_TM_PORT=1335

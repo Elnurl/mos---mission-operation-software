@@ -159,6 +159,26 @@ def seq_count(seq_field: int) -> int:
     return seq_field & 0x3FFF
 
 
+def pack_most_frame(
+    sequence: int,
+    bus_v: float,
+    batt_soc: float,
+    temp_brd: float,
+    mode: int,
+) -> bytes:
+    """Binary MOST TM frame consumed by CfsAdapter (same as stub/harness)."""
+    return struct.pack(
+        ">IHIfffI",
+        0x4D4F5354,  # MOST
+        1,
+        int(sequence) & 0xFFFFFFFF,
+        float(bus_v),
+        float(batt_soc),
+        float(temp_brd),
+        int(mode) & 0xFFFFFFFF,
+    )
+
+
 def pack_most_from_ccsds(datagram: bytes, sequence_override: Optional[int] = None) -> bytes:
     """Synthesize a MOS MOST TM frame from a CCSDS datagram for CfsAdapter.
 
@@ -177,15 +197,20 @@ def pack_most_from_ccsds(datagram: bytes, sequence_override: Optional[int] = Non
     seq = sequence_override if sequence_override is not None else seq_count(seq_field)
     payload_octets = max(0, len(datagram) - PRI_HDR_LEN)
     mode = apid % 3
-    return struct.pack(
-        ">IHIfffI",
-        0x4D4F5354,  # MOST
-        1,
-        seq & 0xFFFFFFFF,
-        float(apid),
-        float(length),
-        float(payload_octets),
-        mode,
+    return pack_most_frame(seq, float(apid), float(length), float(payload_octets), mode)
+
+
+def pack_demo_most(sequence: int) -> bytes:
+    """Periodic demo MOST so the MOS live table is non-empty while debugging cFS TM."""
+    import math
+
+    t = float(sequence)
+    return pack_most_frame(
+        sequence,
+        28.0 + 0.5 * math.sin(t / 5.0),
+        75.0 + 5.0 * math.sin(t / 20.0),
+        22.0 + 3.0 * math.sin(t / 12.0),
+        (sequence // 30) % 3,
     )
 
 
@@ -229,6 +254,8 @@ def self_check() -> None:
     tm = struct.pack(">HHH", 0x0883, 0xC001, 0x0001) + b"\x00\x00"
     most = pack_most_from_ccsds(tm)
     assert most[:4] == b"MOST"
+    demo = pack_demo_most(1)
+    assert demo[:4] == b"MOST" and len(demo) == len(most)
 
 
 if __name__ == "__main__":

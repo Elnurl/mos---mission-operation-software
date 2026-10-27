@@ -65,31 +65,20 @@ make && make install
 
 Do **not** touch `~/.nos3/42`.
 
-### C1. Three terminals (daily)
+### C1. Guaranteed non-empty live table (`--demo-tm`)
 
-**Terminal 1 — cFS:**
+Use this when NOOP Acks but the TM table is blank — proves MOS ports + decode.
 
-```bash
-cd ~/cFS/build/exe/cpu1
-./core-cpu1
-```
+**Terminal 1 — cFS:** `cd ~/cFS/build/exe/cpu1 && ./core-cpu1`
 
-**Terminal 2 — translator** (ENABLE + SEND_DATA_TYPES; listens 1235 **and** 2234):
+**Terminal 2 — translator:**
 
 ```bash
 cd ~/mos---mission-operation-software
-python3 scripts/most-ccsds-translator.py
+python3 scripts/most-ccsds-translator.py --demo-tm
 ```
 
-Success looks like:
-
-```text
-[xlat] TM#1 from ('127.0.0.1', …) mid=0x0881 seq=… → MOST 26B → :1335
-```
-
-If you see the 10s warning instead, re-check C0 / probe.
-
-**Terminal 3 — MOS:**
+**Terminal 3 — MOS (these env vars are required):**
 
 ```bash
 export QT_QPA_PLATFORM=xcb
@@ -98,10 +87,21 @@ export MOS_CFS_TM_PORT=1335
 ./build/src/app/mos-desktop --bridge=udp
 ```
 
-Live table should populate (SEQ, BUS_V=APID diagnostic, …).  
+Expect translator lines `MOST#… demo-tm → 127.0.0.1:1335` and a filling live table within ~1s.
+
+### C2. Real cFS TM (after C0)
+
+Same terminals without `--demo-tm`. Success:
+
+```text
+[xlat] MOST#1 from-ccsds mid=0x…. → 127.0.0.1:1335
+```
+
+If you only see `still no CCSDS TM` → C0 not applied or `core-cpu1` not restarted after `make install`.  
 Mnemonics: `NOOP`, `TO_ENABLE`, `TO_SEND_DATA_TYPES`, `TO_NOOP`.
 
-### C2. Diagnostics
+**Common footgun:** MOS started without `MOS_CFS_TM_PORT=1335` still binds **1235**; translator publishes MOST to **1335** → empty table while ACKs can look fine if ports were partially correct. Always export both 1334/1335.
+### C3. Diagnostics
 
 ```bash
 # With only core-cpu1 running (stop translator so ports are free):
@@ -115,16 +115,14 @@ Optional runtime ADD_PKT (often causes Bad Arg — last resort):
 
 ```bash
 python3 scripts/most-ccsds-translator.py --add-pkt --add-pkt-layout msgid32_le
-# try msgid16_le / msgid16_be only if needed
 ```
 
-### C3. Combined helper
+### C4. Combined helper
 
 ```bash
-# peer stand-in (no cFS):
-MOS_USE_LAB_PEER=1 ./scripts/run-live-cfs-path.sh
+MOS_USE_LAB_PEER=1 MOS_XLAT_DEMO_TM=1 ./scripts/run-live-cfs-path.sh
 # real core-cpu1 already up:
-./scripts/run-live-cfs-path.sh
+MOS_XLAT_DEMO_TM=1 ./scripts/run-live-cfs-path.sh
 ```
 
 ## D. Alternate: direct CCSDS wire (no translator)
