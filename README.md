@@ -102,10 +102,18 @@ python3 scripts/cfs-udp-harness.py
 
 Or: `./scripts/run-udp-demo.sh`
 
-## Run — live NASA cFS (translator)
+## Run — live NASA cFS (translator) — visible TM
 
-cFS `ci_lab`/`to_lab` use **CCSDS**. Keep MOS on MOST and run the translator
-(remapped ports so MOS does not fight ci_lab for :1234).
+cFS `ci_lab`/`to_lab` use **CCSDS**. MOS stays on MOST via the translator
+(MOS **1334/1335**; translator listens for to_lab on **1235 and 2234**).
+
+**One-time if live TM table is empty** (TC/NOOP may still Ack): stock to_lab
+subscription tables are often empty — patch + rebuild cFS (not `~/.nos3/42`):
+
+```bash
+CFS_ROOT=~/cFS ./scripts/patch-cfs-to-lab-subs.sh
+cd ~/cFS && make && make install   # then restart core-cpu1
+```
 
 **WSL every session:**
 
@@ -114,34 +122,30 @@ sudo sysctl -w fs.mqueue.msg_max=256
 sudo sysctl -w fs.mqueue.msgsize_max=65536
 ```
 
-**Terminal 1 — cFS** (already built at `~/cFS`; do not touch `~/.nos3/42`):
+**Terminal 1 — cFS** (`~/cFS` already built):
 
 ```bash
-cd ~/cFS/build/exe/cpu1
-./core-cpu1
+cd ~/cFS/build/exe/cpu1 && ./core-cpu1
 ```
 
-**Terminal 2 — translator** (sends `TO_LAB_ENABLE` on start):
+**Terminal 2 — translator** (auto `TO_LAB_ENABLE` + `SEND_DATA_TYPES`):
 
 ```bash
-python3 scripts/most-ccsds-translator.py --cfs-tm-port 1235
-# no TM? try --cfs-tm-port 2234 (modern to_lab default)
+python3 scripts/most-ccsds-translator.py
+# expect: [xlat] TM#1 from ... → MOST ... → :1335
 ```
 
 **Terminal 3 — MOS:**
 
 ```bash
-export QT_QPA_PLATFORM=xcb
-export MOS_CFS_TC_PORT=1334
-export MOS_CFS_TM_PORT=1335
+export QT_QPA_PLATFORM=xcb MOS_CFS_TC_PORT=1334 MOS_CFS_TM_PORT=1335
 ./build/src/app/mos-desktop --bridge=udp
 ```
 
-Helper: `./scripts/run-live-cfs-path.sh` (add `MOS_USE_LAB_PEER=1` to use the
-in-repo CCSDS peer instead of live `core-cpu1`).
+Helpers: `./scripts/run-live-cfs-path.sh`, `MOS_USE_LAB_PEER=1` for the in-repo
+peer, `python3 scripts/probe-cfs-tm.py` to see which TM port fires.
 
-Full port table, TO_LAB subscription notes, and proven-vs-gap:
-**[`scripts/cfs-sim-notes.md`](scripts/cfs-sim-notes.md)**.
+Full ports / Bad Arg / proven-vs-gap: **[`scripts/cfs-sim-notes.md`](scripts/cfs-sim-notes.md)**.
 
 Env knobs: `MOS_BRIDGE`, `MOS_CFS_TC_HOST`, `MOS_CFS_TC_PORT`, `MOS_CFS_TM_PORT`,
 `MOS_CFS_TM_BIND`, `MOS_CFS_WIRE=ccsds` (direct CCSDS alternate),

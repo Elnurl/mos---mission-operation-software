@@ -109,6 +109,10 @@ QByteArray encodeMnemonic(const QString& mnemonic, const QString& /*argsJson*/, 
       m == QLatin1String("ENABLE_TLM") || m == QLatin1String("ENABLE_TELEMETRY")) {
     return packToLabEnable(destIp, seq, 16);
   }
+  if (m == QLatin1String("TO_SEND_DATA_TYPES") || m == QLatin1String("SEND_DATA_TYPES") ||
+      m == QLatin1String("TO_DATA_TYPES")) {
+    return packCommand(kToLabCmdMid, 3 /* TO_LAB_SEND_DATA_TYPES_CC */, {}, seq);
+  }
   if (m == QLatin1String("CI_NOOP") || m == QLatin1String("CI_LAB_NOOP")) {
     return packCommand(0x1884, kNoopCc, {}, seq);
   }
