@@ -4,7 +4,11 @@
 
 namespace mos {
 
-/** First protocol pack: decodes stub/sim MOST frames; encodes stub TC for bridge. */
+/**
+ * Protocol pack: MOST frames (stub/harness/translator) plus raw CCSDS lab TM
+ * (ci_lab/to_lab). TC encode stays stub `cmdId|mnemonic|args` for ack correlation;
+ * set MOS_CFS_WIRE=ccsds on UdpCfsBridge to emit CCSDS on the wire.
+ */
 class CfsAdapter : public IProtocolAdapter {
   Q_OBJECT
  public:

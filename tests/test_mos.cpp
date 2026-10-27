@@ -1,3 +1,4 @@
+#include "CcsdsLab.h"
 #include "CfsAdapter.h"
 #include "Database.h"
 #include "Models.h"
@@ -22,6 +23,8 @@ class TestMos : public QObject {
   void stubBridgeEmitsTmAndAck();
   void udpBridgeRoundTrip();
   void parseBridgeMode();
+  void adapterDecodesCcsdsTm();
+  void ccsdsLabPackEnableChecksum();
 };
 
 void TestMos::schemaAndDefaultAsset()
@@ -230,6 +233,51 @@ void TestMos::parseBridgeMode()
   QCOMPARE(mos::parseBridgeMode(QStringLiteral("UDP")), mos::BridgeMode::Udp);
   QCOMPARE(mos::parseBridgeMode(QStringLiteral("cfs")), mos::BridgeMode::Udp);
   QVERIFY(!mos::parseBridgeMode(QStringLiteral("nope")).has_value());
+}
+
+void TestMos::adapterDecodesCcsdsTm()
+{
+  // Minimal CCSDS TM: MID 0x0883, seq 1, length 1, 2 payload bytes
+  QByteArray tm;
+  tm.append(char(0x08));
+  tm.append(char(0x83));
+  tm.append(char(0xC0));
+  tm.append(char(0x01));
+  tm.append(char(0x00));
+  tm.append(char(0x01));
+  tm.append(char(0x00));
+  tm.append(char(0x00));
+
+  mos::RawFrame frame;
+  frame.assetId = QStringLiteral("SC-1");
+  frame.payload = tm;
+  frame.receivedUtc = QDateTime::currentDateTimeUtc();
+
+  mos::CfsAdapter adapter;
+  QVector<mos::Parameter> params;
+  QString error;
+  QVERIFY2(adapter.decodeTelemetry(frame, &params, &error), qPrintable(error));
+  QVERIFY(params.size() >= 4);
+  bool sawMid = false;
+  for (const auto& p : params) {
+    if (p.name == QLatin1String("CCSDS_MID")) {
+      QCOMPARE(p.value.toString().toUpper(), QStringLiteral("0X0883"));
+      sawMid = true;
+    }
+  }
+  QVERIFY(sawMid);
+}
+
+void TestMos::ccsdsLabPackEnableChecksum()
+{
+  const QByteArray en = mos::ccsds_lab::packToLabEnable(QStringLiteral("127.0.0.1"), 0, 16);
+  QCOMPARE(en.size(), 24);
+  QVERIFY(mos::ccsds_lab::looksLikeCcsds(en));
+  const auto hdr = mos::ccsds_lab::parsePrimaryHeader(en);
+  QVERIFY(hdr.has_value());
+  QCOMPARE(hdr->streamId, quint16(0x1880));
+  const QByteArray noop = mos::ccsds_lab::encodeMnemonic(QStringLiteral("NOOP"));
+  QCOMPARE(noop.size(), 8);
 }
 
 QTEST_MAIN(TestMos)

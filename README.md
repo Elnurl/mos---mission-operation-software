@@ -2,8 +2,8 @@
 
 Phase 2 **Slice A**: Linux desktop ops client proving a single-spacecraft
 TM → decode → UI → TC → ack path. Default path uses a **stub/sim** bridge;
-optional **UDP** bridge aligns with NASA cFS lab ports (ci_lab / to_lab style)
-and closes the loop via a local harness when full cFS is not running.
+optional **UDP** bridge aligns with NASA cFS lab ports (ci_lab / to_lab) via a
+MOST harness or a **MOST↔CCSDS translator** toward live `core-cpu1`.
 
 **Stack:** Qt 6 + C++ · SQLite · CMake  
 **Out of scope (this phase):** procedures/checklists, multi-sat UI, Postgres, RF, SDA.
@@ -16,11 +16,11 @@ mos/
   src/
     app/         # mos-desktop entry + Qt UI
     core/        # asset, session, TM/TC pipelines
-    adapters/    # protocol pack (cFS-oriented MOST)
-    bridge/      # ICfsBridge + StubCfsBridge + UdpCfsBridge + SimTmGenerator
+    adapters/    # protocol pack (MOST + raw CCSDS lab TM)
+    bridge/      # ICfsBridge + Stub/Udp + CcsdsLab helpers
     persist/     # SQLite schema + access
   tests/
-  scripts/       # UDP harness, demo script, WSL cFS notes
+  scripts/       # UDP harness, MOST↔CCSDS translator, WSL cFS notes
 ```
 
 ## Dependencies (Linux)
@@ -32,7 +32,7 @@ Supported build hosts: native Linux, and **Windows 11 + WSL Ubuntu** (22.04+).
 - Qt 6: Core, Gui, Widgets, Sql, Network (SQLite driver)
 - OpenGL headers/libs (required by Qt6 Gui / CMake `WrapOpenGL`)
 - SQLite 3 (via Qt Sql + system lib)
-- Python 3 (only for `scripts/cfs-udp-harness.py`)
+- Python 3 (harness / translator / lab peer)
 
 ### Debian / Ubuntu (incl. WSL)
 
@@ -88,9 +88,9 @@ bootstraps asset **SC-1**, starts the stub bridge, and streams simulated TM into
 the live table. Compose a telecommand (default `NOOP`) and Send — status moves
 Queued → Sent → Acked via the stub.
 
-## Run — UDP / cFS-port mode
+## Run — UDP harness (MOST, no cFS)
 
-Defaults match NASA cFS lab apps: **TC → :1234**, **TM ← :1235**.
+Defaults match classic lab ports: **TC → :1234**, **TM ← :1235** (MOST payloads).
 
 ```bash
 # terminal A
@@ -100,16 +100,52 @@ python3 scripts/cfs-udp-harness.py
 ./build/src/app/mos-desktop --bridge=udp
 ```
 
-Or:
+Or: `./scripts/run-udp-demo.sh`
+
+## Run — live NASA cFS (translator)
+
+cFS `ci_lab`/`to_lab` use **CCSDS**. Keep MOS on MOST and run the translator
+(remapped ports so MOS does not fight ci_lab for :1234).
+
+**WSL every session:**
 
 ```bash
-chmod +x scripts/run-udp-demo.sh
-./scripts/run-udp-demo.sh
+sudo sysctl -w fs.mqueue.msg_max=256
+sudo sysctl -w fs.mqueue.msgsize_max=65536
 ```
 
-Env knobs: `MOS_BRIDGE`, `MOS_CFS_TC_HOST`, `MOS_CFS_TC_PORT`, `MOS_CFS_TM_PORT`,
-`MOS_CFS_TM_BIND`. Full WSL NASA cFS build steps and honesty about CCSDS gaps:
+**Terminal 1 — cFS** (already built at `~/cFS`; do not touch `~/.nos3/42`):
+
+```bash
+cd ~/cFS/build/exe/cpu1
+./core-cpu1
+```
+
+**Terminal 2 — translator** (sends `TO_LAB_ENABLE` on start):
+
+```bash
+python3 scripts/most-ccsds-translator.py --cfs-tm-port 1235
+# no TM? try --cfs-tm-port 2234 (modern to_lab default)
+```
+
+**Terminal 3 — MOS:**
+
+```bash
+export QT_QPA_PLATFORM=xcb
+export MOS_CFS_TC_PORT=1334
+export MOS_CFS_TM_PORT=1335
+./build/src/app/mos-desktop --bridge=udp
+```
+
+Helper: `./scripts/run-live-cfs-path.sh` (add `MOS_USE_LAB_PEER=1` to use the
+in-repo CCSDS peer instead of live `core-cpu1`).
+
+Full port table, TO_LAB subscription notes, and proven-vs-gap:
 **[`scripts/cfs-sim-notes.md`](scripts/cfs-sim-notes.md)**.
+
+Env knobs: `MOS_BRIDGE`, `MOS_CFS_TC_HOST`, `MOS_CFS_TC_PORT`, `MOS_CFS_TM_PORT`,
+`MOS_CFS_TM_BIND`, `MOS_CFS_WIRE=ccsds` (direct CCSDS alternate),
+`MOS_CFS_AUTO_ENABLE`, `MOS_TO_DEST_IP`.
 
 **Local DB path:** `~/.local/share/MOS/mos.sqlite`  
 If you upgraded from an earlier Slice A build and see repeated
@@ -131,14 +167,17 @@ QT_QPA_PLATFORM=offscreen timeout 3 ./build/src/app/mos-desktop || true
 | Piece | Status |
 | --- | --- |
 | Asset SC-1 in SQLite config | Yes |
-| Live TM table (MOST frames) | Yes (stub or UDP) |
-| TC compose + history/ack | Yes (stub or UDP+harness) |
+| Live TM table (MOST frames) | Yes (stub / UDP harness / translator) |
+| TC compose + history/ack | Yes (stub / UDP+harness / translator MOSACK) |
 | `ICfsBridge` + `StubCfsBridge` | Yes |
 | `UdpCfsBridge` (ci/to-style ports) | Yes — proven vs harness |
-| NASA cFS CCSDS ci_lab/to_lab bytes | Not yet — see scripts notes |
+| MOST↔CCSDS translator + lab peer | Yes — in-repo proof path |
+| Raw CCSDS TM decode in `CfsAdapter` | Yes (diagnostic fields) |
+| Live `core-cpu1` on owner WSL | Owner run — see notes for gaps |
 
 ## What’s next
 
-1. MOST↔CCSDS translator or real CCSDS pack for live `core-cpu1`.
+1. Richer HK decode once flight MIDs/subscriptions are fixed on the cFS side.
 2. TM history views / plots; keep single-sat UI until Phase 4 fleet work.
 3. Verification demo for SYS-030…034 / SYS-050 against chosen cFS ground path.
+4. Later: NOS3/42 richer mission sim alongside cFS (do not replace MOS↔cFS).
